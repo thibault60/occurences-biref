@@ -3,61 +3,63 @@ import pandas as pd
 from io import BytesIO
 
 # 📌 Titre de l'application
-st.title("📊 Consolidateur d'occurrences de mots‑clés ➡️ Export XLSX")
+st.title("📊 Consolidateur d'occurrences (Excel ➡️ Excel)")
 
 # 📝 Mode d'emploi
 st.markdown("""
-Collez ou téléversez vos lignes d'occurrences : chaque ligne contient plusieurs mots‑clés séparés par `|`.
-Le script comptabilise la fréquence de chaque mot‑clé sur l'ensemble des lignes, puis génère un fichier **XLSX** prêt à télécharger.
+**Étapes** :
+1. Téléversez un classeur **Excel (.xlsx)** contenant **une feuille par liste de mots-clés**.  
+   • Chaque cellule peut contenir soit un mot-clé unique, soit une liste séparée par `|`.  
+2. Cliquez sur **« Consolider & Télécharger »**.  
+3. Récupérez un fichier **XLSX** avec une **seule feuille** listant chaque mot-clé et son nombre d'occurrences.
 """)
 
-# 🔹 Widgets d'entrée
-occ_text = st.text_area("✂️ Collez vos occurrences ici", height=250)
-uploaded_file = st.file_uploader("📂 …ou téléchargez un fichier .txt contenant vos occurrences", type=["txt"])
+# 🔹 Widget d’upload
+xlsx_file = st.file_uploader("📂 Choisissez votre fichier Excel", type=["xlsx"])
 
-# 🔹 Détermination de la source de données
-input_data = ""
-if uploaded_file is not None:
-    input_data = uploaded_file.getvalue().decode("utf-8")
-else:
-    input_data = occ_text
+if xlsx_file and st.button("🚀 Consolider & Télécharger"):
+    try:
+        # 1️⃣ Charger toutes les feuilles en dictionnaire de DataFrames
+        sheets_dict = pd.read_excel(xlsx_file, sheet_name=None, header=None, engine="openpyxl")
 
-# 🔹 Traitement au clic
-if input_data and st.button("🚀 Générer le tableau XLSX"):
-    # 1️⃣ Pré‑traitement : découpe des lignes non vides
-    lines = [line for line in input_data.splitlines() if line.strip()]
+        tokens = []
+        for sheet_name, df in sheets_dict.items():
+            # 2️⃣ Flatten de toutes les valeurs de la feuille
+            for cell in df.values.flatten():
+                if pd.isna(cell):
+                    continue
+                # découpe éventuelle par « | »
+                for part in str(cell).split("|"):
+                    part = part.strip()
+                    if part:
+                        tokens.append(part)
 
-    # 2️⃣ Extraction / nettoyage des tokens
-    tokens = []
-    for line in lines:
-        # scinder par « | », retirer les espaces superflus et conserver les non‑vides
-        parts = [part.strip() for part in line.split("|") if part.strip()]
-        tokens.extend(parts)
+        if not tokens:
+            st.warning("⚠️ Aucun mot-clé détecté dans le classeur.")
+        else:
+            # 3️⃣ Comptage des occurrences
+            counts_df = (
+                pd.Series(tokens)
+                .value_counts()
+                .reset_index(name="Occurrences")
+                .rename(columns={"index": "Mot Clé"})
+            )
 
-    # 3️⃣ Comptage des occurrences
-    if tokens:
-        counts = (
-            pd.Series(tokens)
-            .value_counts()  # fréquence descendante
-            .reset_index(names=["Occurrences"])  # renommage colonne comptage
-            .rename(columns={"index": "Mot Clé"})
-        )
+            # 4️⃣ Aperçu
+            st.subheader("🔎 Aperçu des occurrences consolidées")
+            st.dataframe(counts_df, use_container_width=True)
 
-        # 4️⃣ Aperçu dans l'app
-        st.subheader("🔎 Aperçu du tableau consolidé")
-        st.dataframe(counts, use_container_width=True)
+            # 5️⃣ Export en XLSX en mémoire
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                counts_df.to_excel(writer, sheet_name="Occurrences", index=False)
+            buffer.seek(0)
 
-        # 5️⃣ Export en mémoire (BytesIO) puis téléchargement
-        buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            counts.to_excel(writer, index=False, sheet_name="Occurrences")
-        buffer.seek(0)
-
-        st.download_button(
-            label="📥 Télécharger le XLSX consolidé",
-            data=buffer,
-            file_name="occurrences.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    else:
-        st.warning("⚠️ Aucun mot‑clé détecté dans l'entrée.")
+            st.download_button(
+                label="📥 Télécharger le XLSX consolidé",
+                data=buffer,
+                file_name="occurrences_consolidées.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+    except Exception as e:
+        st.error(f"❌ Erreur : {e}")
