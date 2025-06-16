@@ -3,29 +3,24 @@ import pandas as pd
 from io import BytesIO
 
 # 📌 Titre de l'application
-st.title("📊 Consolidateur de mots‑clés (feuille ➡️ unique)")
+st.title("📊 Fusion simple des occurrences (Excel ➡️ Excel)")
 
-# 📝 Mode d'emploi
 st.markdown("""
-1. Téléversez un classeur **Excel (.xlsx)** comportant **une feuille par famille de mots‑clés**.  
-   • Les mots‑clés peuvent être dans une ou plusieurs colonnes et/ou séparés par `|`.  
-2. Cliquez sur **« Fusionner & Télécharger »**.  
-3. Un fichier **XLSX** est généré avec **deux colonnes** :  
-   • **Mot Clé** → le nom de la feuille  
-   • **Occurrences** → la liste unique des mots‑clés, séparée par ` | `.
+👉 Téléversez un classeur **.xlsx** avec *une feuille par thématique*.  
+Le script extrait tous les mots‑clés (séparateur `|` géré), déduplique dans l'ordre, puis
+produit **un seul fichier Excel** qui contient uniquement la liste d'occurrences —
+*aucun autre champ n'est ajouté*. Chaque ligne correspond à une feuille source; il n'y a
+pas d'en‑tête.
 """)
 
-# 🔹 Upload du classeur
-xlsx_file = st.file_uploader("📂 Sélectionnez votre fichier Excel", type=["xlsx"])
+xlsx_file = st.file_uploader("📂 Charger le fichier Excel", type=["xlsx"])
 
 if xlsx_file and st.button("🚀 Fusionner & Télécharger"):
     try:
-        # 1️⃣ Charger toutes les feuilles
         sheets_dict = pd.read_excel(xlsx_file, sheet_name=None, header=None, engine="openpyxl")
 
         lignes = []
-        for sheet_name, df in sheets_dict.items():
-            # 2️⃣ Récupérer toutes les cellules non‑vides
+        for _, df in sheets_dict.items():
             tokens = []
             for cell in df.values.flatten():
                 if pd.isna(cell):
@@ -34,36 +29,27 @@ if xlsx_file and st.button("🚀 Fusionner & Télécharger"):
                     part = part.strip()
                     if part:
                         tokens.append(part)
-
-            if not tokens:
-                st.info(f"ℹ️ Feuille « {sheet_name} » ignorée (vide).")
-                continue
-
-            # 3️⃣ Déduplication en conservant l'ordre
-            unique_tokens = list(dict.fromkeys(tokens))
-            lignes.append({
-                "Mot Clé": sheet_name,
-                "Occurrences": " | ".join(unique_tokens)
-            })
+            if tokens:
+                unique_tokens = list(dict.fromkeys(tokens))
+                lignes.append([" | ".join(unique_tokens)])  # stocké comme liste pour DataFrame sans header
 
         if not lignes:
-            st.warning("⚠️ Aucun mot‑clé trouvé dans le classeur.")
+            st.warning("⚠️ Aucun mot-clé détecté.")
         else:
-            # 4️⃣ DataFrame consolidé
+            # DataFrame sans intitulé de colonne
             result_df = pd.DataFrame(lignes)
-            st.subheader("🔎 Aperçu consolidé")
-            st.dataframe(result_df, use_container_width=True)
+            st.subheader("🔎 Aperçu (occurrences seules)")
+            st.dataframe(result_df, use_container_width=True, hide_index=True)
 
-            # 5️⃣ Export XLSX en mémoire
             buffer = BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                result_df.to_excel(writer, sheet_name="Consolidé", index=False)
+                result_df.to_excel(writer, sheet_name="Occurrences", index=False, header=False)
             buffer.seek(0)
 
             st.download_button(
-                label="📥 Télécharger le XLSX consolidé",
+                "📥 Télécharger le fichier XLSX",
                 data=buffer,
-                file_name="mots_cles_consolides.xlsx",
+                file_name="occurrences_uniques.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     except Exception as e:
