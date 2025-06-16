@@ -1,69 +1,80 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+import re
 
 # 📌 Titre de l'application
-st.title("📊 Consolidation Mot Clé Principal + Occurrences (Excel ➡️ Excel)")
+st.title("📊 Consolidation Mot‑Clé Principal + Occurrences (keywords only)")
 
 st.markdown("""
 **Mode d'emploi** :
-1️⃣ Téléversez un classeur **.xlsx** comportant **une feuille par URL/cluster**.  
-   • Les cellules **A5** et **B5** doivent contenir le *mot-clé principal* (ex. « robe » et « longue »).  
-   • Les mots-clés secondaires peuvent être répartis dans la feuille (séparateur `|` géré).  
-2️⃣ Cliquez sur **« Fusionner & Télécharger »**.  
-3️⃣ Le fichier généré possède deux colonnes :  
-   • **Mot Clé Principal**  
-   • **Occurrences** (liste dédupliquée, séparée par ` | `).
+1️⃣ Téléversez un classeur **.xlsx** comportant **une feuille par cluster**.  
+   • Les cellules **A5** et **B5** forment le *mot‑clé principal* (ex. « eti » et « définition »).  
+   • Les mots‑clés secondaires peuvent être dans n'importe quelle cellule, séparés par `|`.  
+2️⃣ Cliquez sur **« Fusionner & Télécharger »**.  
+3️⃣ Le fichier exporté contient **deux colonnes** :  
+   • **Mot Clé Principal**  
+   • **Occurrences** : uniquement des mots‑clés (texte), dédupliqués, séparés par ` | `.
 """)
 
-# 🔹 Upload du classeur
-xlsx_file = st.file_uploader("📂 Charger le fichier Excel", type=["xlsx"])
+# ➡️ Import du fichier
+xlsx_file = st.file_uploader("📂 Charger votre fichier Excel", type=["xlsx"])
+
+# ➡️ Fonction utilitaire pour savoir si un token est purement numérique/pourcentage, etc.
+def is_keyword(token: str) -> bool:
+    # rejet si uniquement chiffres, espace ou ponctuation
+    token_stripped = token.strip()
+    if not token_stripped:
+        return False
+    # pattern nombre (entier ou décimal) éventuellement suivi d'un %
+    if re.fullmatch(r"[0-9]+([.,][0-9]+)?%?", token_stripped):
+        return False
+    return True
 
 if xlsx_file and st.button("🚀 Fusionner & Télécharger"):
     try:
-        # 1️⃣ Lecture de toutes les feuilles
         sheets_dict = pd.read_excel(xlsx_file, sheet_name=None, header=None, engine="openpyxl")
 
         lignes = []
-        for sheet_name, df in sheets_dict.items():
-            # --- Mot-clé principal (A5 + B5) ---
+        for _, df in sheets_dict.items():
+            # ---- Mot‑clé principal ----
             try:
                 mot_cle_principal = f"{df.iloc[4, 0]} {df.iloc[4, 1]}".strip()
             except Exception:
-                mot_cle_principal = ""  # fallback si structure inattendue
+                mot_cle_principal = ""
 
-            # --- Collecte de tous les mots-clés ---
+            # ---- Récupération & nettoyage des tokens ----
             tokens = []
             for cell in df.values.flatten():
                 if pd.isna(cell):
                     continue
                 for part in str(cell).split("|"):
                     part = part.strip()
-                    if part:
+                    if part and is_keyword(part):
                         tokens.append(part)
 
             if tokens:
-                unique_tokens = list(dict.fromkeys(tokens))  # déduplication en conservant l'ordre
+                unique_tokens = list(dict.fromkeys(tokens))
                 lignes.append({
                     "Mot Clé Principal": mot_cle_principal,
                     "Occurrences": " | ".join(unique_tokens)
                 })
 
-        # 2️⃣ Vérification et export
         if not lignes:
-            st.warning("⚠️ Aucun mot-clé détecté dans le classeur.")
+            st.warning("⚠️ Aucun mot‑clé valide trouvé dans le classeur.")
         else:
             result_df = pd.DataFrame(lignes, columns=["Mot Clé Principal", "Occurrences"])
-            st.subheader("🔎 Aperçu de la consolidation")
+            st.subheader("🔎 Aperçu consolidation (keywords only)")
             st.dataframe(result_df, use_container_width=True, hide_index=True)
 
+            # ---- Export en mémoire ----
             buffer = BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
                 result_df.to_excel(writer, sheet_name="Consolidé", index=False, header=True)
             buffer.seek(0)
 
             st.download_button(
-                label="📥 Télécharger le fichier XLSX consolidé",
+                label="📥 Télécharger le XLSX consolidé",
                 data=buffer,
                 file_name="motcles_consolides.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
