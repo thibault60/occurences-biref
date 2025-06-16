@@ -3,62 +3,67 @@ import pandas as pd
 from io import BytesIO
 
 # 📌 Titre de l'application
-st.title("📊 Consolidateur d'occurrences (Excel ➡️ Excel)")
+st.title("📊 Consolidateur de mots‑clés (feuille ➡️ unique)")
 
 # 📝 Mode d'emploi
 st.markdown("""
-**Étapes** :
-1. Téléversez un classeur **Excel (.xlsx)** contenant **une feuille par liste de mots-clés**.  
-   • Chaque cellule peut contenir soit un mot-clé unique, soit une liste séparée par `|`.  
-2. Cliquez sur **« Consolider & Télécharger »**.  
-3. Récupérez un fichier **XLSX** avec une **seule feuille** listant chaque mot-clé et son nombre d'occurrences.
+1. Téléversez un classeur **Excel (.xlsx)** comportant **une feuille par famille de mots‑clés**.  
+   • Les mots‑clés peuvent être dans une ou plusieurs colonnes et/ou séparés par `|`.  
+2. Cliquez sur **« Fusionner & Télécharger »**.  
+3. Un fichier **XLSX** est généré avec **deux colonnes** :  
+   • **Mot Clé** → le nom de la feuille  
+   • **Occurrences** → la liste unique des mots‑clés, séparée par ` | `.
 """)
 
-# 🔹 Widget d’upload
-xlsx_file = st.file_uploader("📂 Choisissez votre fichier Excel", type=["xlsx"])
+# 🔹 Upload du classeur
+xlsx_file = st.file_uploader("📂 Sélectionnez votre fichier Excel", type=["xlsx"])
 
-if xlsx_file and st.button("🚀 Consolider & Télécharger"):
+if xlsx_file and st.button("🚀 Fusionner & Télécharger"):
     try:
-        # 1️⃣ Charger toutes les feuilles en dictionnaire de DataFrames
+        # 1️⃣ Charger toutes les feuilles
         sheets_dict = pd.read_excel(xlsx_file, sheet_name=None, header=None, engine="openpyxl")
 
-        tokens = []
+        lignes = []
         for sheet_name, df in sheets_dict.items():
-            # 2️⃣ Flatten de toutes les valeurs de la feuille
+            # 2️⃣ Récupérer toutes les cellules non‑vides
+            tokens = []
             for cell in df.values.flatten():
                 if pd.isna(cell):
                     continue
-                # découpe éventuelle par « | »
                 for part in str(cell).split("|"):
                     part = part.strip()
                     if part:
                         tokens.append(part)
 
-        if not tokens:
-            st.warning("⚠️ Aucun mot-clé détecté dans le classeur.")
+            if not tokens:
+                st.info(f"ℹ️ Feuille « {sheet_name} » ignorée (vide).")
+                continue
+
+            # 3️⃣ Déduplication en conservant l'ordre
+            unique_tokens = list(dict.fromkeys(tokens))
+            lignes.append({
+                "Mot Clé": sheet_name,
+                "Occurrences": " | ".join(unique_tokens)
+            })
+
+        if not lignes:
+            st.warning("⚠️ Aucun mot‑clé trouvé dans le classeur.")
         else:
-            # 3️⃣ Comptage des occurrences
-            counts_df = (
-                pd.Series(tokens)
-                .value_counts()
-                .reset_index(name="Occurrences")
-                .rename(columns={"index": "Mot Clé"})
-            )
+            # 4️⃣ DataFrame consolidé
+            result_df = pd.DataFrame(lignes)
+            st.subheader("🔎 Aperçu consolidé")
+            st.dataframe(result_df, use_container_width=True)
 
-            # 4️⃣ Aperçu
-            st.subheader("🔎 Aperçu des occurrences consolidées")
-            st.dataframe(counts_df, use_container_width=True)
-
-            # 5️⃣ Export en XLSX en mémoire
+            # 5️⃣ Export XLSX en mémoire
             buffer = BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                counts_df.to_excel(writer, sheet_name="Occurrences", index=False)
+                result_df.to_excel(writer, sheet_name="Consolidé", index=False)
             buffer.seek(0)
 
             st.download_button(
                 label="📥 Télécharger le XLSX consolidé",
                 data=buffer,
-                file_name="occurrences_consolidées.xlsx",
+                file_name="mots_cles_consolides.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     except Exception as e:
